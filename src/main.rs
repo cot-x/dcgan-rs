@@ -15,6 +15,20 @@ const MUL_LR_DIS: f64 = 4.;
 const BATCHES: i64 = 100000000;
 
 fn main() -> Result<()> {
+    println!("OSS Library: PyTorch");
+    println!("URL: https://github.com/pytorch/pytorch");
+    println!("Lisence: 3-Clause BSD License");
+    println!("");
+    println!("OSS Library: tch-rs");
+    println!("URL: https://github.com/LaurentMazare/tch-rs");
+    println!("Lisence: MIT Lisence");
+    println!("");
+    println!("OSS Library: anyhow");
+    println!("URL: https://github.com/dtolnay/anyhow");
+    println!("Lisence: Apache License Version 2.0");
+    println!("--------");
+    println!("");
+
     let args: Vec<_> = std::env::args().collect();
     let image_dir = match &args[..] {
         [_, dir] => dir,
