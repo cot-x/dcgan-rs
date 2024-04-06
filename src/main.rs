@@ -58,6 +58,10 @@ fn main() -> Result<()> {
     println!("OSS Library: clap");
     println!("URL: https://github.com/clap-rs/clap");
     println!("Lisence: MIT OR Apache-2.0");
+    println!("");
+    println!("OSS Library: rand");
+    println!("URL: https://github.com/rust-random/rand");
+    println!("Lisence: MIT OR Apache-2.0");
     println!("--------");
     println!("");
 
