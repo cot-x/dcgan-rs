@@ -7,5 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.81"
+clap = { version = "4.5.4", features = ["derive"] }
+rand = "0.8.5"
 tch = "0.15.0"
+tqdm = "0.7.0"
 #torch-sys = {version="0.15.0", features=["download-libtorch"]}

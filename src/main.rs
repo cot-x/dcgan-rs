@@ -1,20 +1,44 @@
 use std::path::Path;
-use anyhow::{bail, Result};
 use tch::{nn, nn::OptimizerConfig, Tensor, Device, kind, Kind};
+use anyhow::Result;
+use tqdm::tqdm;
+use clap::Parser;
+use rand::{Rng, thread_rng};
+use rand::distributions::Uniform;
 
 mod generator;
 mod discriminator;
 use generator::Generator;
 use discriminator::Discriminator;
 
-const IMG_SIZE: i64 = 32;
-const DIM_LATENT: i64 = 32;
-const BATCH_SIZE: i64 = 32;
-const LEARNING_RATE: f64 = 0.0001;
-const MUL_LR_DIS: f64 = 4.;
-const BATCHES: i64 = 100000000;
+const IMG_SIZE: i64 = 64;
+const DIM_LATENT: i64 = 64;
+
+#[derive(Parser, Debug)]
+#[command(version, about = "DCGAN via Rust.", long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    dataset: String,
+    #[arg(long, default_value_t = 32)]
+    batch_size: i64,
+    #[arg(long, default_value_t = 0.0001)]
+    lr: f64,
+    #[arg(long, default_value_t = 4.0)]
+    mul_dis_lr: f64,
+    #[arg(long, default_value_t = 0.6)]
+    aug_threshold: f64,
+    #[arg(long, default_value_t = 0.01)]
+    aug_increment: f64,
+    #[arg(short, long, default_value_t = 100*10000)]
+    iters: i64,
+    #[arg(short, long, default_value_t = 0)]
+    generate: usize
+}
 
 fn main() -> Result<()> {
+    let args = Args::parse();
+
+    // Print OSS-Lisence
     println!("OSS Library: PyTorch");
     println!("URL: https://github.com/pytorch/pytorch");
     println!("Lisence: 3-Clause BSD License");
@@ -26,42 +50,33 @@ fn main() -> Result<()> {
     println!("OSS Library: anyhow");
     println!("URL: https://github.com/dtolnay/anyhow");
     println!("Lisence: Apache License Version 2.0");
+    println!("");
+    println!("OSS Library: tqdm");
+    println!("URL: https://github.com/mrlazy1708/tqdm");
+    println!("Lisence: MIT OR Apache-2.0");
+    println!("");
+    println!("OSS Library: clap");
+    println!("URL: https://github.com/clap-rs/clap");
+    println!("Lisence: MIT OR Apache-2.0");
     println!("--------");
     println!("");
 
-    let args: Vec<_> = std::env::args().collect();
-    let image_dir = match &args[..] {
-        [_, dir] => dir,
-        _ => bail!("Usage: main.exe image-dataset-dir")
-    };
-    println!("Image Dataset Dir: {image_dir}");
 
     let device = Device::cuda_if_available();
     println!("Use Device: {device:?}");
-
-    println!("Image Size: {IMG_SIZE}");
-    println!("Dim Latent: {DIM_LATENT}");
-    println!("Batch Size: {BATCH_SIZE}");
-    println!("Learning Rate: {LEARNING_RATE}");
-    println!("Mul Discriminator's LR: {MUL_LR_DIS}");
-    println!("BATCHES: {BATCHES}");
     println!("--------");
 
-    println!("Loading Dataset...");
-    let dataset = tch::vision::image::load_dir(image_dir, IMG_SIZE, IMG_SIZE)?;
-    println!("Loaded Dataset: {dataset:?}");
-    let train_size = dataset.size()[0];
-    println!("Train Size: {}", train_size);
-    println!("--------");
-
+    // Build Generator
     let mut g_vs = nn::VarStore::new(device);
     let generator = Generator::new(g_vs.root(), DIM_LATENT);
-    let mut optimizer_g = nn::adam(0., 0.9, 0.).build(&g_vs, LEARNING_RATE)?;
+    let mut optimizer_g = nn::adam(0., 0.9, 0.).build(&g_vs, args.lr)?;
 
+    // Build Discriminator
     let mut d_vs = nn::VarStore::new(device);
     let discriminator = Discriminator::new(d_vs.root());
-    let mut optimizer_d = nn::adam(0., 0.9, 0.).build(&d_vs, LEARNING_RATE * MUL_LR_DIS)?;
+    let mut optimizer_d = nn::adam(0., 0.9, 0.).build(&d_vs, args.lr * args.mul_dis_lr)?;
 
+    // Load network's weights
     let path = Path::new("g_weights.pth");
     if path.is_file() == true {
         g_vs.load("g_weights.pth")?;
@@ -73,14 +88,36 @@ fn main() -> Result<()> {
         println!("Loaded: d_weights.pth");
     }
 
-    let minibatch = || {
-        let index = Tensor::randint(train_size, [BATCH_SIZE], kind::INT64_CPU);
-        dataset.index_select(0, &index).to_device(device).to_kind(Kind::Float) / 255.0
-    };
+    if args.generate != 0 {
+        for i in 0..args.generate {
+            let seed_1 = || {
+                Tensor::rand([1, DIM_LATENT, 1, 1], kind::FLOAT_CPU).to_device(device)
+            };
+            let image = seed_1()
+                .apply_t(&generator, false)
+                .squeeze_dim(0) * 255.0;
+            tch::vision::image::save(&image, format!("generate-{}.png", i+1))?
+        }
+        println!("Generated!");
+        return Ok(())
+    }
 
-    let seed = || {
-        Tensor::rand([BATCH_SIZE, DIM_LATENT, 1, 1], kind::FLOAT_CPU).to_device(device)
-    };
+    println!("Image Dataset Dir: {}", args.dataset);
+    println!("Image Size: {}", IMG_SIZE);
+    println!("Dim Latent: {}", DIM_LATENT);
+    println!("Batch Size: {}", args.batch_size);
+    println!("Learning Rate: {}", args.lr);
+    println!("Mul Discriminator's LR: {}", args.mul_dis_lr);
+    println!("Probability Aut-Threshold: {}", args.aug_threshold);
+    println!("Probability Aug-Increment: {}", args.aug_increment);
+    println!("Iterations: {}", args.iters);
+    println!("--------");
+
+    println!("Loading Dataset...");
+    let dataset = tch::vision::image::load_dir(args.dataset, IMG_SIZE, IMG_SIZE)?;
+    println!("Loaded Dataset: {dataset:?}");
+    let train_size = dataset.size()[0];
+    println!("--------");
 
     // Train with LSGAN.
     // for example, (a, b, c) = 0, 1, 1 or (a, b, c) = -1, 1, 0
@@ -88,7 +125,24 @@ fn main() -> Result<()> {
     let b = 1;
     let c = 1;
 
-    for i in 0..BATCHES {
+    let minibatch = || {
+        let index = Tensor::randint(train_size, [args.batch_size], kind::INT64_CPU);
+        dataset.index_select(0, &index).to_device(device).to_kind(Kind::Float) / 255.0
+    };
+
+    let seed = || {
+        Tensor::rand([args.batch_size, DIM_LATENT, 1, 1], kind::FLOAT_CPU).to_device(device)
+    };
+
+    let mut rng = thread_rng();
+    let uniform = Uniform::new(0.0, 1.0);
+
+    // for APA
+    let mut pseudo_aug: f64 = 0.;
+
+    println!("Train Iteration...");
+    for i in tqdm(0..args.iters) {
+        // Train Discriminator
         d_vs.unfreeze();
         g_vs.freeze();
         let d_loss = {
@@ -102,12 +156,30 @@ fn main() -> Result<()> {
                 .copy()
                 .detach()
                 .apply_t(&discriminator, true);
-            let fake_src_loss = (&fake_src_score - a).square().sum(Kind::Float);
 
-            0.5 * (real_src_loss + fake_src_loss) / BATCH_SIZE
+            // APA
+            let fake_src_loss: Tensor;
+            let p = rng.sample(uniform);
+            if 1. - pseudo_aug < p {
+                fake_src_loss = (&fake_src_score - b).square().sum(Kind::Float); // Pseudo: fake is real.
+            } else {
+                fake_src_loss = (&fake_src_score - a).square().sum(Kind::Float);
+            }
+
+            // Update Probability Augmentation
+            let lz = (real_src_score.logit(None).sign().mean(Kind::Float) - fake_src_score.logit(None).sign().mean(Kind::Float)) / 2;
+            if lz.unsqueeze(0).iter::<f64>()?.next().unwrap() > args.aug_threshold {
+                pseudo_aug += args.aug_increment;
+            } else {
+                pseudo_aug -= args.aug_increment;
+            }
+            pseudo_aug = f64::min(1., f64::max(0., pseudo_aug));
+
+            0.5 * (real_src_loss + fake_src_loss) / args.batch_size
         };
         optimizer_d.backward_step(&d_loss);
 
+        // Train Generator
         d_vs.freeze();
         g_vs.unfreeze();
         let g_loss = {
@@ -116,13 +188,12 @@ fn main() -> Result<()> {
                 .apply_t(&discriminator, true);
             let fake_src_loss = (&fake_src_score - c).square().sum(Kind::Float);
 
-            0.5 * fake_src_loss / BATCH_SIZE
+            0.5 * fake_src_loss / args.batch_size
         };
         optimizer_g.backward_step(&g_loss);
 
-        print!("*");
+        // Output
         if (i+1) % 100 == 0 {
-            println!("");
             println!("{}: G_LOSS({:?}) + D_LOSS({:?}) = {:?}", i+1, &g_loss, &d_loss, &g_loss + &d_loss);
 
             g_vs.save("g_weights.pth")?;
@@ -133,7 +204,7 @@ fn main() -> Result<()> {
             };
             let image = seed_1()
                 .apply_t(&generator, false)
-                .squeeze_dim(0);
+                .squeeze_dim(0) * 255.0;
             tch::vision::image::save(&image, format!("{}.png", i+1))?
         }
     }

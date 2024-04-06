@@ -20,7 +20,11 @@ impl Discriminator {
                                             4, nn::ConvConfig { stride: 2, padding: 1, ..Default::default() }))
                 .add(nn::batch_norm2d(&path / "batch_norm2d_3", dim_hidden * 4, Default::default()))
                 .add_fn(|x| x.leaky_relu())
-                .add(nn::conv2d(&path / "Conv2d_4", dim_hidden * 4, 1,
+                .add(nn::conv2d(&path / "Conv2d_4", dim_hidden * 4, dim_hidden * 8,
+                                            4, nn::ConvConfig { stride: 2, padding: 1, ..Default::default() }))
+                .add(nn::batch_norm2d(&path / "batch_norm2d_4", dim_hidden * 8, Default::default()))
+                .add_fn(|x| x.leaky_relu())
+                .add(nn::conv2d(&path / "Conv2d_4", dim_hidden * 8, 1,
                                             3, nn::ConvConfig { stride: 1, padding: 1, ..Default::default() }));
             Discriminator { net }
         }
