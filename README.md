@@ -5,17 +5,18 @@ DCGAN via Rust. And EXE of Windows.
 ```
 DCGAN via Rust.
 
-Usage: dcgan-rs.exe [OPTIONS] --dataset <DATASET>
+Usage: dcgan-rs.exe [OPTIONS]
 
 Options:
-  -d, --dataset <DATASET>
+  -d, --dataset <DATASET>              [default: ]
   --batch-size <BATCH_SIZE>        [default: 32]
   --lr <LR>                        [default: 0.0001]
   --mul-dis-lr <MUL_DIS_LR>        [default: 4]
   --aug-threshold <AUG_THRESHOLD>  [default: 0.6]
   --aug-increment <AUG_INCREMENT>  [default: 0.01]
-  -i, --iters <ITERS>                  [default: 1000000]
+  -i, --iters <ITERS>                  [default: 10000]
   -g, --generate <GENERATE>            [default: 0]
+  -m, --morphing
   -h, --help                           Print help
   -V, --version                        Print version
 ```

@@ -1,10 +1,14 @@
 use std::path::Path;
+use std::fs;
+use std::fs::File;
+
 use tch::{nn, nn::OptimizerConfig, Tensor, Device, kind, Kind};
-use anyhow::Result;
-use tqdm::tqdm;
-use clap::Parser;
+use anyhow::{bail, Result};
 use rand::{Rng, thread_rng};
 use rand::distributions::Uniform;
+use tqdm::tqdm;
+use clap::Parser;
+use gif::{Frame, Encoder, Repeat};
 
 mod generator;
 mod discriminator;
@@ -17,7 +21,7 @@ const DIM_LATENT: i64 = 64;
 #[derive(Parser, Debug)]
 #[command(version, about = "DCGAN via Rust.", long_about = None)]
 struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = String::new())]
     dataset: String,
     #[arg(long, default_value_t = 32)]
     batch_size: i64,
@@ -29,42 +33,18 @@ struct Args {
     aug_threshold: f64,
     #[arg(long, default_value_t = 0.01)]
     aug_increment: f64,
-    #[arg(short, long, default_value_t = 100*10000)]
+    #[arg(short, long, default_value_t = 10000)]
     iters: i64,
     #[arg(short, long, default_value_t = 0)]
-    generate: usize
+    generate: usize,
+    #[arg(short, long, default_value_t = false)]
+    morphing: bool
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Print OSS-Lisence
-    println!("OSS Library: PyTorch");
-    println!("URL: https://github.com/pytorch/pytorch");
-    println!("Lisence: 3-Clause BSD License");
-    println!("");
-    println!("OSS Library: tch-rs");
-    println!("URL: https://github.com/LaurentMazare/tch-rs");
-    println!("Lisence: MIT Lisence");
-    println!("");
-    println!("OSS Library: anyhow");
-    println!("URL: https://github.com/dtolnay/anyhow");
-    println!("Lisence: Apache License Version 2.0");
-    println!("");
-    println!("OSS Library: tqdm");
-    println!("URL: https://github.com/mrlazy1708/tqdm");
-    println!("Lisence: MIT OR Apache-2.0");
-    println!("");
-    println!("OSS Library: clap");
-    println!("URL: https://github.com/clap-rs/clap");
-    println!("Lisence: MIT OR Apache-2.0");
-    println!("");
-    println!("OSS Library: rand");
-    println!("URL: https://github.com/rust-random/rand");
-    println!("Lisence: MIT OR Apache-2.0");
-    println!("--------");
-    println!("");
-
+    print_oss_lisence();
 
     let device = Device::cuda_if_available();
     println!("Use Device: {device:?}");
@@ -93,17 +73,19 @@ fn main() -> Result<()> {
     }
 
     if args.generate != 0 {
-        for i in 0..args.generate {
-            let seed_1 = || {
-                Tensor::rand([1, DIM_LATENT, 1, 1], kind::FLOAT_CPU).to_device(device)
-            };
-            let image = seed_1()
-                .apply_t(&generator, false)
-                .squeeze_dim(0) * 255.0;
-            tch::vision::image::save(&image, format!("generate-{}.png", i+1))?
-        }
+        generate(&generator, args.generate, device);
         println!("Generated!");
-        return Ok(())
+        return Ok(());
+    }
+
+    if args.morphing {
+        morphing(&generator, device);
+        println!("Generated morphing.gif");
+        return Ok(());
+    }
+
+    if args.dataset == "" {
+        bail!("Please specify the dataset. See the --help option for details.")
     }
 
     println!("Image Dataset Dir: {}", args.dataset);
@@ -209,9 +191,91 @@ fn main() -> Result<()> {
             let image = seed_1()
                 .apply_t(&generator, false)
                 .squeeze_dim(0) * 255.0;
-            tch::vision::image::save(&image, format!("{}.png", i+1))?
+            let path = Path::new("results");
+            if path.is_dir() == false {
+                fs::create_dir("results")?;
+            }
+            let mut path_buf = path.to_path_buf();
+            path_buf.push(format!("{}.png", i+1));
+            tch::vision::image::save(&image, &path_buf)?
         }
     }
 
     Ok(())
+}
+
+fn generate(generator: &Generator, num: usize, device: Device) {
+    for i in 0..num {
+        let seed_1 = || {
+            Tensor::rand([1, DIM_LATENT, 1, 1], kind::FLOAT_CPU).to_device(device)
+        };
+        let image = seed_1()
+            .apply_t(generator, false)
+            .squeeze_dim(0) * 255.0;
+        let path = Path::new("results");
+        if path.is_dir() == false {
+            fs::create_dir("results").unwrap();
+        }
+        let mut path_buf = path.to_path_buf();
+        path_buf.push(format!("generate-{}.png", i+1));
+        tch::vision::image::save(&image, &path_buf).unwrap();
+    }
+}
+
+fn morphing(generator: &Generator, device: Device) {
+    let seed_one = Tensor::from_slice(&[0f32; DIM_LATENT as usize]).reshape([1, -1, 1, 1]).to_device(device);
+    let seed_two = Tensor::from_slice(&[1f32; DIM_LATENT as usize]).reshape([1, -1, 1, 1]).to_device(device);
+
+    let path = Path::new("results");
+    if path.is_dir() == false {
+        fs::create_dir("results").unwrap();
+    }
+    let mut path_buf = path.to_path_buf();
+    path_buf.push("morphing.gif");
+    let mut image = File::create(path_buf).unwrap();
+    let mut encoder = Encoder::new(&mut image, IMG_SIZE as u16, IMG_SIZE as u16, &[]).unwrap();
+    encoder.set_repeat(Repeat::Infinite).unwrap();
+
+    for i in 0..100 {
+        let l:f64 = i as f64 / 99.0;
+        let image = ((1.0 - l) * &seed_one + l * &seed_two)
+            .apply_t(generator, false)
+            .squeeze_dim(0).permute_copy([1,2,0]).flat_view() * 255.0;
+        let mut data = [0 as u8; 3 * IMG_SIZE as usize * IMG_SIZE as usize];
+        image.to_kind(Kind::Uint8).copy_data(&mut data, 3 * IMG_SIZE as usize * IMG_SIZE as usize);
+        let frame = Frame::from_rgb(IMG_SIZE as u16, IMG_SIZE as u16, &data);
+        encoder.write_frame(&frame).unwrap();
+    }
+}
+
+fn print_oss_lisence() {
+    println!("OSS Library: PyTorch");
+    println!("URL: https://github.com/pytorch/pytorch");
+    println!("Lisence: 3-Clause BSD License");
+    println!("");
+    println!("OSS Library: tch-rs");
+    println!("URL: https://github.com/LaurentMazare/tch-rs");
+    println!("Lisence: MIT Lisence");
+    println!("");
+    println!("OSS Library: anyhow");
+    println!("URL: https://github.com/dtolnay/anyhow");
+    println!("Lisence: Apache License Version 2.0");
+    println!("");
+    println!("OSS Library: rand");
+    println!("URL: https://github.com/rust-random/rand");
+    println!("Lisence: MIT OR Apache-2.0");
+    println!("");
+    println!("OSS Library: gif");
+    println!("URL: https://github.com/image-rs/image-gif");
+    println!("Lisence: MIT OR Apache-2.0");
+    println!("");
+    println!("OSS Library: tqdm");
+    println!("URL: https://github.com/mrlazy1708/tqdm");
+    println!("Lisence: MIT OR Apache-2.0");
+    println!("");
+    println!("OSS Library: clap");
+    println!("URL: https://github.com/clap-rs/clap");
+    println!("Lisence: MIT OR Apache-2.0");
+    println!("--------");
+    println!("");
 }

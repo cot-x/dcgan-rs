@@ -1,6 +1,6 @@
 [package]
 name = "dcgan-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.81"
 clap = { version = "4.5.4", features = ["derive"] }
+gif = "0.13.1"
 rand = "0.8.5"
 tch = "0.15.0"
 tqdm = "0.7.0"
